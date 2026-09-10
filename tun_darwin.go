@@ -110,6 +110,13 @@ func New(options Options) (Tun, error) {
 			return nil, err
 		}
 	}
+	stopFD, err := stopfd.New()
+	if err != nil {
+		if options.FileDescriptor == 0 {
+			_ = unix.Close(tunFd)
+		}
+		return nil, err
+	}
 	nativeTun := &NativeTun{
 		tunFd:         tunFd,
 		tunFile:       os.NewFile(uintptr(tunFd), "utun"),
@@ -119,7 +126,7 @@ func New(options Options) (Tun, error) {
 		iovecsOutput:  make([]iovecBuffer, batchSize),
 		msgHdrs:       make([]rawfile.MsgHdrX, batchSize),
 		msgHdrsOutput: make([]rawfile.MsgHdrX, batchSize),
-		stopFd:        common.Must1(stopfd.New()),
+		stopFd:        stopFD,
 		writeMsgX:     options.EXP_SendMsgX,
 	}
 	for i := 0; i < batchSize; i++ {

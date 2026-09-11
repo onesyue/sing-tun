@@ -15,21 +15,26 @@ import (
 
 type Mixed struct {
 	*System
-	tun      GVisorTun
-	stack    *stack.Stack
-	endpoint *channel.Endpoint
+	tun            GVisorTun
+	stack          *stack.Stack
+	endpoint       *channel.Endpoint
+	tcpBufferRange TCPBufferRange
 }
 
 func NewMixed(
 	options StackOptions,
 ) (Stack, error) {
+	if err := options.GVisorTCPBufferRange.validate(); err != nil {
+		return nil, err
+	}
 	system, err := NewSystem(options)
 	if err != nil {
 		return nil, err
 	}
 	return &Mixed{
-		System: system.(*System),
-		tun:    system.(*System).tun.(GVisorTun),
+		System:         system.(*System),
+		tun:            system.(*System).tun.(GVisorTun),
+		tcpBufferRange: options.GVisorTCPBufferRange,
 	}, nil
 }
 
@@ -39,7 +44,7 @@ func (m *Mixed) Start() error {
 		return err
 	}
 	endpoint := channel.New(1024, uint32(m.mtu), "")
-	ipStack, err := NewGVisorStack(endpoint)
+	ipStack, err := newGVisorStackWithTCPBuffers(endpoint, stack.NICOptions{}, m.tcpBufferRange)
 	if err != nil {
 		return err
 	}

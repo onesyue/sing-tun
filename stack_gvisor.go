@@ -39,6 +39,7 @@ type GVisor struct {
 	logger               logger.Logger
 	stack                *stack.Stack
 	endpoint             stack.LinkEndpoint
+	tcpBufferRange       TCPBufferRange
 }
 
 type GVisorTun interface {
@@ -50,6 +51,9 @@ type GVisorTun interface {
 func NewGVisor(
 	options StackOptions,
 ) (Stack, error) {
+	if err := options.GVisorTCPBufferRange.validate(); err != nil {
+		return nil, err
+	}
 	gTun, isGTun := options.Tun.(GVisorTun)
 	if !isGTun {
 		return nil, E.New("gVisor stack is unsupported on current platform")
@@ -78,6 +82,7 @@ func NewGVisor(
 		broadcastAddr:        BroadcastAddr(options.TunOptions.Inet4Address),
 		handler:              options.Handler,
 		logger:               options.Logger,
+		tcpBufferRange:       options.GVisorTCPBufferRange,
 	}
 	return gStack, nil
 }
@@ -88,7 +93,7 @@ func (t *GVisor) Start() error {
 		return err
 	}
 	linkEndpoint = &LinkEndpointFilter{linkEndpoint, t.broadcastAddr, t.tun}
-	ipStack, err := NewGVisorStackWithOptions(linkEndpoint, nicOptions)
+	ipStack, err := newGVisorStackWithTCPBuffers(linkEndpoint, nicOptions, t.tcpBufferRange)
 	if err != nil {
 		return err
 	}
@@ -135,6 +140,16 @@ func NewGVisorStack(ep stack.LinkEndpoint) (*stack.Stack, error) {
 }
 
 func NewGVisorStackWithOptions(ep stack.LinkEndpoint, opts stack.NICOptions) (*stack.Stack, error) {
+	return newGVisorStackWithTCPBuffers(ep, opts, TCPBufferRange{})
+}
+
+func newGVisorStackWithTCPBuffers(ep stack.LinkEndpoint, opts stack.NICOptions, buffers TCPBufferRange) (*stack.Stack, error) {
+	if err := buffers.validate(); err != nil {
+		return nil, err
+	}
+	if buffers == (TCPBufferRange{}) {
+		buffers = TCPBufferRange{Min: 1, Default: 20 * 1024, Max: 20 * 1024}
+	}
 	ipStack := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{
 			ipv4.NewProtocol,
@@ -147,8 +162,26 @@ func NewGVisorStackWithOptions(ep stack.LinkEndpoint, opts stack.NICOptions) (*s
 			icmp.NewProtocol6,
 		},
 	})
-	err := ipStack.CreateNICWithOptions(DefaultNIC, ep, opts)
-	if err != nil {
+	// Configure endpoint defaults before CreateNIC attaches a packet dispatcher.
+	// Post-Start tuning can lose the first flows to the old buffer limits.
+	if err := ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpip.TCPReceiveBufferSizeRangeOption{
+		Min: buffers.Min, Default: buffers.Default, Max: buffers.Max,
+	}); err != nil {
+		ipStack.Close()
+		return nil, gonet.TranslateNetstackError(err)
+	}
+	if err := ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpip.TCPSendBufferSizeRangeOption{
+		Min: buffers.Min, Default: buffers.Default, Max: buffers.Max,
+	}); err != nil {
+		ipStack.Close()
+		return nil, gonet.TranslateNetstackError(err)
+	}
+	sOpt := tcpip.TCPSACKEnabled(true)
+	ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &sOpt)
+	mOpt := tcpip.TCPModerateReceiveBufferOption(true)
+	ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &mOpt)
+	if err := ipStack.CreateNICWithOptions(DefaultNIC, ep, opts); err != nil {
+		ipStack.Close()
 		return nil, gonet.TranslateNetstackError(err)
 	}
 	ipStack.SetRouteTable([]tcpip.Route{
@@ -157,20 +190,5 @@ func NewGVisorStackWithOptions(ep stack.LinkEndpoint, opts stack.NICOptions) (*s
 	})
 	ipStack.SetSpoofing(DefaultNIC, true)
 	ipStack.SetPromiscuousMode(DefaultNIC, true)
-	bufSize := 20 * 1024
-	ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpip.TCPReceiveBufferSizeRangeOption{
-		Min:     1,
-		Default: bufSize,
-		Max:     bufSize,
-	})
-	ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpip.TCPSendBufferSizeRangeOption{
-		Min:     1,
-		Default: bufSize,
-		Max:     bufSize,
-	})
-	sOpt := tcpip.TCPSACKEnabled(true)
-	ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &sOpt)
-	mOpt := tcpip.TCPModerateReceiveBufferOption(true)
-	ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &mOpt)
 	return ipStack, nil
 }

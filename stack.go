@@ -35,6 +35,26 @@ type StackOptions struct {
 	IncludeAllNetworks     bool
 	InterfaceFinder        control.InterfaceFinder
 	EnforceBindInterface   bool
+	// GVisorTCPBufferRange configures both TCP directions before the NIC starts.
+	// The zero value retains the upstream 20 KiB default. System TCP is unaffected.
+	GVisorTCPBufferRange TCPBufferRange
+}
+
+// TCPBufferRange bounds per-connection buffering in bytes; it reserves no memory.
+type TCPBufferRange struct {
+	Min     int
+	Default int
+	Max     int
+}
+
+func (r TCPBufferRange) validate() error {
+	if r == (TCPBufferRange{}) {
+		return nil
+	}
+	if r.Min <= 0 || r.Default < r.Min || r.Max < r.Default {
+		return E.New("invalid gVisor TCP buffer range: require 0 < min <= default <= max")
+	}
+	return nil
 }
 
 func NewStack(

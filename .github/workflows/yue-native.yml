@@ -1,0 +1,31 @@
+name: Yue native TUN
+
+on:
+  push:
+    branches: ['yuelink/**']
+    tags: ['v*-yue.*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: '1.26.8'
+      # ./... includes the upstream Windows-only internal/winipcfg directory
+      # without a package-level platform constraint. Exercise the real public
+      # entry points and both stack variants on every supported desktop OS.
+      - run: go test -race -tags with_gvisor . ./ping
+      - run: go test -race . ./ping
+      - run: go build -tags with_gvisor .
+      - run: go build .

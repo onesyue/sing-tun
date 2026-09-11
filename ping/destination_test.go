@@ -14,7 +14,7 @@ import (
 
 func TestIsClosed(t *testing.T) {
 	t.Parallel()
-	destination, err := ping.ConnectDestination(context.Background(), logger.NOP(), nil, netip.MustParseAddr("1.1.1.1"), nil, 30*time.Second)
+	destination, err := ping.ConnectDestination(context.Background(), logger.NOP(), nil, netip.MustParseAddr("127.0.0.1"), nil, 30*time.Second)
 	require.NoError(t, err)
 	defer destination.Close()
 	time.Sleep(1 * time.Second)

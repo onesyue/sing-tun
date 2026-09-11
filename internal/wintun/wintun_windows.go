@@ -30,7 +30,7 @@ var (
 )
 
 func closeAdapter(wintun *Adapter) {
-	syscall.SyscallN(procWintunCloseAdapter.Addr(), 1, wintun.handle, 0, 0)
+	syscall.SyscallN(procWintunCloseAdapter.Addr(), wintun.handle)
 }
 
 // CreateAdapter creates a Wintun adapter. name is the cosmetic name of the adapter.

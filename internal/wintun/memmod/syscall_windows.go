@@ -117,10 +117,9 @@ type IMAGE_NT_HEADERS struct {
 }
 
 func (ntheader *IMAGE_NT_HEADERS) Sections() []IMAGE_SECTION_HEADER {
-	return (*[0xffff]IMAGE_SECTION_HEADER)(unsafe.Pointer(
-		(uintptr)(unsafe.Pointer(ntheader)) +
-			unsafe.Offsetof(ntheader.OptionalHeader) +
-			uintptr(ntheader.FileHeader.SizeOfOptionalHeader)))[:ntheader.FileHeader.NumberOfSections]
+	first := (*IMAGE_SECTION_HEADER)(unsafe.Add(unsafe.Pointer(ntheader),
+		unsafe.Offsetof(ntheader.OptionalHeader)+uintptr(ntheader.FileHeader.SizeOfOptionalHeader)))
+	return unsafe.Slice(first, int(ntheader.FileHeader.NumberOfSections))
 }
 
 const (

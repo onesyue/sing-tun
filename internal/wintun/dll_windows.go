@@ -28,7 +28,7 @@ type lazyProc struct {
 }
 
 func (p *lazyProc) Find() error {
-	if atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&p.addr))) != nil {
+	if atomic.LoadUintptr(&p.addr) != 0 {
 		return nil
 	}
 	p.mu.Lock()
@@ -46,7 +46,7 @@ func (p *lazyProc) Find() error {
 		return fmt.Errorf("error getting %s address: %w", p.Name, err)
 	}
 
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&p.addr)), unsafe.Pointer(addr))
+	atomic.StoreUintptr(&p.addr, addr)
 	return nil
 }
 

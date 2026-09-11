@@ -410,7 +410,7 @@ func TestAddDeleteIPAddress(t *testing.T) {
 		t.Errorf("LUID.AddIPAddresses() returned an error: %v", err)
 	}
 
-	time.Sleep(500 * time.Millisecond)
+	waitForAddressNotification(t, &created)
 
 	ifc, _ = getTestInterface()
 	for addr := ifc.FirstUnicastAddress; addr != nil; addr = addr.Next {
@@ -434,7 +434,7 @@ func TestAddDeleteIPAddress(t *testing.T) {
 		t.Errorf("LUID.DeleteIPAddress() returned an error: %v", err)
 	}
 
-	time.Sleep(500 * time.Millisecond)
+	waitForAddressNotification(t, &deleted)
 
 	addr, err = ifc.LUID.IPAddress(nonexistantIPv4ToAdd.Addr())
 	if err == nil {
@@ -665,5 +665,15 @@ func TestAnycastIPAddress(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetAnycastIPAddressTable() returned an error: %v", err)
 		return
+	}
+}
+
+// Windows delivers address notifications after duplicate-address detection;
+// half-second sleeps can delete a newly added address before its add callback.
+func waitForAddressNotification(t *testing.T, flag *atomic.Bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !flag.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
 	}
 }

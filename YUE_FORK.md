@@ -21,9 +21,8 @@ send/receive sizes inherited by real newly created TCP endpoints. It covers
 the upstream default plus the iOS, Android, and desktop budgets. This does not
 claim mobile device throughput or platform VPN acceptance.
 
-The Yue native workflow runs the entry-point and ping tests with and without
-gVisor under the race detector on Linux, macOS, and Windows, using Go 1.26.8.
-The broader inherited `go test ./...` is not portable: internal/winipcfg lacks
-package-wide platform constraints, and several copied gtcpip format diagnostics
-fail modern go vet. Those upstream test-layout limitations are not hidden by
-disabling vet on the native gates.
+The Yue native workflow runs all packages with and without gVisor under the
+race detector on Linux, macOS, and Windows, using Go 1.26.8. The copied Windows
+IP configuration files now declare their actual platform, and the missing
+`Address.String` method is restored verbatim from the pinned gVisor dependency.
+This repairs the inherited test discovery and vet failures without disabling vet.

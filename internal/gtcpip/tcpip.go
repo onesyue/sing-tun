@@ -245,6 +245,54 @@ func (a Address) Len() int {
 	return a.length
 }
 
+// Restored from the pinned gVisor upstream; copied address diagnostics use %s.
+// String implements the fmt.Stringer interface.
+func (a Address) String() string {
+	switch l := a.Len(); l {
+	case 4:
+		return fmt.Sprintf("%d.%d.%d.%d", int(a.addr[0]), int(a.addr[1]), int(a.addr[2]), int(a.addr[3]))
+	case 16:
+		// Find the longest subsequence of hexadecimal zeros.
+		start, end := -1, -1
+		for i := 0; i < a.Len(); i += 2 {
+			j := i
+			for j < a.Len() && a.addr[j] == 0 && a.addr[j+1] == 0 {
+				j += 2
+			}
+			if j > i+2 && j-i > end-start {
+				start, end = i, j
+			}
+		}
+
+		var b strings.Builder
+		for i := 0; i < a.Len(); i += 2 {
+			if i == start {
+				b.WriteString("::")
+				i = end
+				if end >= a.Len() {
+					break
+				}
+			} else if i > 0 {
+				b.WriteByte(':')
+			}
+			v := uint16(a.addr[i+0])<<8 | uint16(a.addr[i+1])
+			if v == 0 {
+				b.WriteByte('0')
+			} else {
+				const digits = "0123456789abcdef"
+				for i := uint(3); i < 4; i-- {
+					if v := v >> (i * 4); v != 0 {
+						b.WriteByte(digits[v&0xf])
+					}
+				}
+			}
+		}
+		return b.String()
+	default:
+		return fmt.Sprintf("%x", a.addr[:l])
+	}
+}
+
 // WithPrefix returns the address with a prefix that represents a point subnet.
 func (a Address) WithPrefix() AddressWithPrefix {
 	return AddressWithPrefix{

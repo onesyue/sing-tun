@@ -44,6 +44,7 @@ type defaultInterfaceMonitor struct {
 	networkMonitor        NetworkUpdateMonitor
 	checkUpdateTimer      *time.Timer
 	checkAccess           sync.Mutex
+	closed                atomic.Bool
 	element               *list.Element[NetworkUpdateCallback]
 	access                sync.Mutex
 	callbacks             list.List[DefaultInterfaceUpdateCallback]
@@ -69,6 +70,9 @@ func (m *defaultInterfaceMonitor) Start() error {
 func (m *defaultInterfaceMonitor) delayCheckUpdate() {
 	m.access.Lock()
 	defer m.access.Unlock()
+	if m.closed.Load() {
+		return
+	}
 	if m.checkUpdateTimer == nil {
 		m.checkUpdateTimer = time.AfterFunc(time.Second, m.postCheckUpdate)
 	} else {
@@ -79,6 +83,9 @@ func (m *defaultInterfaceMonitor) delayCheckUpdate() {
 func (m *defaultInterfaceMonitor) postCheckUpdate() {
 	m.checkAccess.Lock()
 	defer m.checkAccess.Unlock()
+	if m.closed.Load() {
+		return
+	}
 	err := m.interfaceFinder.Update()
 	if err != nil {
 		m.logger.Error("update interface: ", err)
@@ -101,6 +108,15 @@ func (m *defaultInterfaceMonitor) postCheckUpdate() {
 }
 
 func (m *defaultInterfaceMonitor) Close() error {
+	if !m.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	m.access.Lock()
+	if m.checkUpdateTimer != nil {
+		m.checkUpdateTimer.Stop()
+		m.checkUpdateTimer = nil
+	}
+	m.access.Unlock()
 	if m.element != nil {
 		m.networkMonitor.UnregisterCallback(m.element)
 	}
@@ -132,6 +148,9 @@ func (m *defaultInterfaceMonitor) UnregisterCallback(element *list.Element[Defau
 }
 
 func (m *defaultInterfaceMonitor) emit(defaultInterface *control.Interface, flags int) {
+	if m.closed.Load() {
+		return
+	}
 	m.access.Lock()
 	callbacks := m.callbacks.Array()
 	m.access.Unlock()

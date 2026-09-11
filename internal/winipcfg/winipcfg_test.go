@@ -26,6 +26,7 @@ package winipcfg
 import (
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -190,14 +191,15 @@ func TestIPChangeMetric(t *testing.T) {
 		return
 	}
 
-	var changed bool
+	var changed atomic.Bool
+	targetLUID := ipifc.InterfaceLUID
 	cb, err := RegisterInterfaceChangeCallback(func(notificationType MibNotificationType, iface *MibIPInterfaceRow) {
-		if iface == nil || iface.InterfaceLUID != ipifc.InterfaceLUID {
+		if iface == nil || iface.InterfaceLUID != targetLUID {
 			return
 		}
 		switch notificationType {
 		case MibParameterNotification:
-			changed = true
+			changed.Store(true)
 		}
 	})
 	if err != nil {
@@ -239,10 +241,10 @@ func TestIPChangeMetric(t *testing.T) {
 	if ipifc.UseAutomaticMetric {
 		t.Error("UseAutomaticMetric is true although it's set to false.")
 	}
-	if !changed {
+	if !changed.Load() {
 		t.Errorf("Notification handler has not been called on metric change.")
 	}
-	changed = false
+	changed.Store(false)
 
 	ipifc.UseAutomaticMetric = useAutomaticMetric
 	ipifc.Metric = metric
@@ -264,7 +266,7 @@ func TestIPChangeMetric(t *testing.T) {
 	if ipifc.UseAutomaticMetric != useAutomaticMetric {
 		t.Errorf("UseAutomaticMetric is %v although %v is expected.", ipifc.UseAutomaticMetric, useAutomaticMetric)
 	}
-	if !changed {
+	if !changed.Load() {
 		t.Errorf("Notification handler has not been called on metric change.")
 	}
 }
@@ -381,16 +383,17 @@ func TestAddDeleteIPAddress(t *testing.T) {
 		return
 	}
 
-	var created, deleted bool
+	var created, deleted atomic.Bool
+	targetLUID := ifc.LUID
 	cb, err := RegisterUnicastAddressChangeCallback(func(notificationType MibNotificationType, addr *MibUnicastIPAddressRow) {
-		if addr == nil || addr.InterfaceLUID != ifc.LUID {
+		if addr == nil || addr.InterfaceLUID != targetLUID {
 			return
 		}
 		switch notificationType {
 		case MibAddInstance:
-			created = true
+			created.Store(true)
 		case MibDeleteInstance:
-			deleted = true
+			deleted.Store(true)
 		}
 	})
 	if err != nil {
@@ -422,7 +425,7 @@ func TestAddDeleteIPAddress(t *testing.T) {
 	} else if addr == nil {
 		t.Errorf("Unicast address %s still doesn't exist, although it's added successfully.", nonexistantIPv4ToAdd.Addr().String())
 	}
-	if !created {
+	if !created.Load() {
 		t.Errorf("Notification handler has not been called on add.")
 	}
 
@@ -439,7 +442,7 @@ func TestAddDeleteIPAddress(t *testing.T) {
 	} else if err != windows.ERROR_NOT_FOUND {
 		t.Errorf("LUID.IPAddress() returned an error: %v", err)
 	}
-	if !deleted {
+	if !deleted.Load() {
 		t.Errorf("Notification handler has not been called on delete.")
 	}
 }
@@ -500,13 +503,17 @@ func TestAddDeleteRoute(t *testing.T) {
 		t.Errorf("findRoute() returned %d items although the route isn't added yet. Have you forgot to set nonexistentRouteIPv4ToAdd appropriately?", len(routes))
 	}
 
-	var created, deleted bool
+	var created, deleted atomic.Bool
+	targetLUID := ifc.LUID
 	cb, err := RegisterRouteChangeCallback(func(notificationType MibNotificationType, route *MibIPforwardRow2) {
+		if route == nil || route.InterfaceLUID != targetLUID {
+			return
+		}
 		switch notificationType {
 		case MibAddInstance:
-			created = true
+			created.Store(true)
 		case MibDeleteInstance:
-			deleted = true
+			deleted.Store(true)
 		}
 	})
 	if err != nil {
@@ -529,7 +536,7 @@ func TestAddDeleteRoute(t *testing.T) {
 	} else if route.DestinationPrefix.RawPrefix.Addr() != nonexistentRouteIPv4ToAdd.Destination.Addr() || route.NextHop.Addr() != nonexistentRouteIPv4ToAdd.NextHop {
 		t.Error("LUID.Route() returned a wrong route!")
 	}
-	if !created {
+	if !created.Load() {
 		t.Errorf("Route handler has not been called on add.")
 	}
 
@@ -555,7 +562,7 @@ func TestAddDeleteRoute(t *testing.T) {
 	} else if err != windows.ERROR_NOT_FOUND {
 		t.Errorf("LUID.Route() returned an error: %v", err)
 	}
-	if !deleted {
+	if !deleted.Load() {
 		t.Errorf("Route handler has not been called on delete.")
 	}
 

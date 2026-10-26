@@ -44,11 +44,12 @@ func (m *Mixed) Start() error {
 		return err
 	}
 	endpoint := channel.New(1024, uint32(m.mtu), "")
-	ipStack, err := newGVisorStackWithTCPBuffers(endpoint, stack.NICOptions{}, m.tcpBufferRange)
+	ipStack, err := newGVisorStackWithInitializer(endpoint, stack.NICOptions{}, m.tcpBufferRange, func(ipStack *stack.Stack) {
+		ipStack.SetTransportProtocolHandler(udp.ProtocolNumber, NewUDPForwarder(m.ctx, ipStack, m.handler).HandlePacket)
+	})
 	if err != nil {
 		return err
 	}
-	ipStack.SetTransportProtocolHandler(udp.ProtocolNumber, NewUDPForwarder(m.ctx, ipStack, m.handler).HandlePacket)
 	m.stack = ipStack
 	m.endpoint = endpoint
 	go m.tunLoop()

@@ -2,7 +2,7 @@ name: Yue native TUN
 
 on:
   push:
-    branches: ['yuelink/**']
+    branches: ['master', 'yuelink/**']
     tags: ['v*-yue.*']
   pull_request:
   workflow_dispatch:

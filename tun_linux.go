@@ -662,6 +662,7 @@ func (t *NativeTun) rules() []*netlink.Rule {
 	}
 	if len(t.options.IncludeInterface) > 0 {
 		matchPriority := priority + 2
+		matchPriority6 := priority6 + 2
 		for _, includeInterface := range t.options.IncludeInterface {
 			if p4 {
 				it = netlink.NewRule()
@@ -675,7 +676,7 @@ func (t *NativeTun) rules() []*netlink.Rule {
 				it = netlink.NewRule()
 				it.Priority = priority6
 				it.IifName = includeInterface
-				it.Goto = matchPriority
+				it.Goto = matchPriority6
 				it.Family = unix.AF_INET6
 				rules = append(rules, it)
 			}
@@ -709,7 +710,7 @@ func (t *NativeTun) rules() []*netlink.Rule {
 			priority6++
 
 			it = netlink.NewRule()
-			it.Priority = matchPriority
+			it.Priority = matchPriority6
 			it.Family = unix.AF_INET6
 			rules = append(rules, it)
 			priority6++
@@ -861,6 +862,17 @@ func (t *NativeTun) rules() []*netlink.Rule {
 		// priority++
 	}
 	if p6 {
+		for _, address := range t.options.Inet6Address {
+			it = netlink.NewRule()
+			it.Priority = priority6
+			it.IifName = "lo"
+			it.Src = address.Masked()
+			it.Table = t.options.IPRoute2TableIndex
+			it.Family = unix.AF_INET6
+			rules = append(rules, it)
+		}
+		priority6++
+
 		it = netlink.NewRule()
 		it.Priority = priority6
 		it.IifName = t.options.Name
@@ -883,17 +895,6 @@ func (t *NativeTun) rules() []*netlink.Rule {
 		it.Goto = nopPriority
 		it.Family = unix.AF_INET6
 		rules = append(rules, it)
-		priority6++
-
-		for _, address := range t.options.Inet6Address {
-			it = netlink.NewRule()
-			it.Priority = priority6
-			it.IifName = "lo"
-			it.Src = address.Masked()
-			it.Table = t.options.IPRoute2TableIndex
-			it.Family = unix.AF_INET6
-			rules = append(rules, it)
-		}
 		priority6++
 
 		it = netlink.NewRule()
@@ -934,12 +935,27 @@ func (t *NativeTun) setRoute(tunLink netlink.Link) error {
 
 func (t *NativeTun) setRules() error {
 	for i, rule := range t.rules() {
-		err := netlink.RuleAdd(rule)
+		err := addRouteRule(rule, netlink.RuleAdd, unix.Socket, unix.Close)
 		if err != nil {
 			return E.Cause(err, "add rule ", i, "/", len(t.rules()))
 		}
 	}
 	return nil
+}
+
+// addRouteRule keeps syscall dependencies local so unsupported-family handling
+// can be tested without changing the host network or global function variables.
+func addRouteRule(rule *netlink.Rule, add func(*netlink.Rule) error, socket func(int, int, int) (int, error), closeSocket func(int) error) error {
+	err := add(rule)
+	if rule.Type == unix.FR_ACT_UNREACHABLE && errors.Is(err, unix.EAFNOSUPPORT) {
+		socketFd, socketErr := socket(rule.Family, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
+		if socketErr == nil {
+			closeSocket(socketFd)
+		} else if errors.Is(socketErr, unix.EAFNOSUPPORT) {
+			return nil
+		}
+	}
+	return err
 }
 
 func (t *NativeTun) unsetRoute() error {
